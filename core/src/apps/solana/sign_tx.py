@@ -121,17 +121,23 @@ def calculate_fee(transaction: Transaction) -> int:
 
     number_of_signers = 0
     for address in transaction.addresses:
-        if address[1] == AddressType.AddressSig:
+        if (
+            address[1] == AddressType.AddressSig
+            or address[1] == AddressType.AddressSigReadOnly
+        ):
             number_of_signers += 1
 
+    # This is not totally correct as signature cost can hide in precompiles invocation
+    # The cost being negligeable we can ignore the case due to additional complexity
     base_fee = SOLANA_BASE_FEE_LAMPORTS * number_of_signers
 
     unit_price = 0
     is_unit_price_set = False
-    unit_limit = SOLANA_COMPUTE_UNIT_LIMIT
+    unit_limit = 0
     is_unit_limit_set = False
+    num_non_compute_budget_instructions = 0
 
-    for instruction in transaction.instructions[:3]:
+    for instruction in transaction.instructions:
         if instruction.program_id == COMPUTE_BUDGET_PROGRAM_ID:
             if (
                 instruction.instruction_id
@@ -147,5 +153,10 @@ def calculate_fee(transaction: Transaction) -> int:
             ):
                 unit_price = instruction.lamports
                 is_unit_price_set = True
+            else:
+                num_non_compute_budget_instructions += 1
 
-    return int(base_fee + unit_price * unit_limit / 1000000)
+    if not is_unit_limit_set:
+        unit_limit = num_non_compute_budget_instructions * SOLANA_COMPUTE_UNIT_LIMIT
+
+    return int(base_fee + unit_price * unit_limit / 1_000_000)
